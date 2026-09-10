@@ -128,6 +128,13 @@
 			<version>2.21.4</version>
 		</dependency>
 
+		<!-- Jackson Java Time compatibility required by Reality Defender SDK -->
+		<dependency>
+			<groupId>com.fasterxml.jackson.datatype</groupId>
+			<artifactId>jackson-datatype-jsr310</artifactId>
+			<version>2.21.4</version>
+		</dependency>
+
 		<!-- Reality Defender -->
 		<dependency>
 			<groupId>ai.realitydefender</groupId>
