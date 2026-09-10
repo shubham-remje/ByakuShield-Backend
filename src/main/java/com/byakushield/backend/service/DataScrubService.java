@@ -1,5 +1,9 @@
 package com.byakushield.backend.service;
 
+import ai.realitydefender.RealityDefender;
+import ai.realitydefender.exceptions.RealityDefenderException;
+import ai.realitydefender.models.DetectionResult;
+
 import com.byakushield.backend.dto.ThreatResponse;
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.Directory;
@@ -43,9 +47,8 @@ public class DataScrubService {
             /*
              * Read the uploaded file once.
              *
-             * This is important because transferTo() may move the
-             * underlying Tomcat temporary file, making subsequent
-             * calls to file.getBytes() fail.
+             * This prevents problems where transferTo() moves
+             * the underlying temporary file.
              */
             byte[] originalBytes =
                     file.getBytes();
@@ -61,7 +64,10 @@ public class DataScrubService {
             }
 
             /*
-             * Create a temporary copy for metadata-extractor.
+             * Create a temporary copy for:
+             *
+             * 1. metadata-extractor
+             * 2. Reality Defender
              */
             tempFile =
                     createTempFile(file);
@@ -92,8 +98,7 @@ public class DataScrubService {
                     calculateThreatLevel(score);
 
             /*
-             * Generate sanitized image from the bytes that were
-             * already read above.
+             * Generate sanitized image.
              */
             String sanitizedData =
                     createSanitizedData(
@@ -109,6 +114,16 @@ public class DataScrubService {
                     "The original image was not deleted. " +
                             "Delete the original manually if you no longer " +
                             "want the unsanitized copy on your device.";
+
+            /*
+             * Optional Reality Defender AI demonstration.
+             *
+             * This does NOT affect the DataScrub privacy score.
+             */
+            String aiAnalysis =
+                    analyzeWithRealityDefender(
+                            tempFile
+                    );
 
             String details;
 
@@ -127,6 +142,22 @@ public class DataScrubService {
                         buildDetails(
                                 sensitiveTags
                         );
+            }
+
+            /*
+             * Append AI authenticity information.
+             *
+             * The existing DataScrub privacy score remains
+             * completely independent.
+             */
+            if (
+                    aiAnalysis != null &&
+                            !aiAnalysis.isBlank()
+            ) {
+
+                details +=
+                        " " +
+                                aiAnalysis;
             }
 
             return new ThreatResponse(
@@ -164,6 +195,292 @@ public class DataScrubService {
                 tempFile.delete();
             }
         }
+    }
+
+    /**
+     * Optional AI media-authenticity analysis using
+     * Reality Defender.
+     *
+     * This feature is only a demonstration feature.
+     * If Reality Defender fails, the normal DataScrub
+     * metadata/privacy functionality continues working.
+     */
+    private String analyzeWithRealityDefender(
+            File imageFile
+    ) {
+
+        if (
+                imageFile == null ||
+                        !imageFile.exists()
+        ) {
+
+            return
+                    "AI media analysis was unavailable because " +
+                            "the temporary image file could not be accessed.";
+        }
+
+        try {
+
+            String apiKey =
+                    System.getenv(
+                            "REALITY_DEFENDER_API_KEY"
+                    );
+
+            if (
+                    apiKey == null ||
+                            apiKey.isBlank()
+            ) {
+
+                return
+                        "AI media authenticity analysis was skipped " +
+                                "because the Reality Defender API key " +
+                                "is not configured.";
+            }
+
+            RealityDefender client =
+                    RealityDefender.builder()
+                            .apiKey(apiKey)
+                            .build();
+
+            try (client) {
+
+                /*
+                 * Upload the image and wait for the detection result.
+                 */
+                DetectionResult result =
+                        client.detectFile(
+                                imageFile
+                        );
+
+                /*
+                 * All SDK result-accessor calls are isolated inside
+                 * buildRealityDefenderDetails().
+                 *
+                 * That method declares Exception because the current
+                 * SDK exposes Jackson checked exceptions from its
+                 * result accessors.
+                 */
+                return buildRealityDefenderDetails(
+                        result
+                );
+            }
+
+        } catch (Exception e) {
+
+            /*
+             * Reality Defender is an optional demo capability.
+             *
+             * Any API/SDK/Jackson problem must not break the
+             * existing DataScrub privacy functionality.
+             */
+            System.err.println(
+                    "DataScrub: Reality Defender image analysis " +
+                            "was unavailable."
+            );
+
+            e.printStackTrace();
+
+            return
+                    "AI media authenticity analysis was unavailable. " +
+                            "The existing metadata privacy analysis " +
+                            "and sanitization were still completed.";
+        }
+    }
+
+    /**
+     * Converts the Reality Defender result into a concise,
+     * human-readable DataScrub detail.
+     *
+     * IMPORTANT:
+     *
+     * The current Reality Defender SDK exposes Jackson checked
+     * exceptions from some of its result accessors. Therefore,
+     * this method deliberately declares Exception instead of
+     * trying to catch JsonProcessingException around individual
+     * SDK methods.
+     */
+    private String buildRealityDefenderDetails(
+            DetectionResult result
+    ) throws Exception {
+
+        if (result == null) {
+
+            return
+                    "AI media authenticity analysis returned no result.";
+        }
+
+        /*
+         * Reality Defender status.
+         */
+        String status =
+                result.getStatus();
+
+        if (
+                status == null ||
+                        status.isBlank()
+        ) {
+
+            status = "UNKNOWN";
+        }
+
+        /*
+         * We intentionally use a conservative demonstration
+         * score derived from the detection status.
+         *
+         * This is NOT the official Reality Defender numeric
+         * score and does not affect DataScrub's privacy score.
+         */
+        double aiScore =
+                scoreFromStatus(
+                        status
+                );
+
+        aiScore =
+                Math.round(
+                        aiScore * 100.0
+                ) / 100.0;
+
+        StringBuilder details =
+                new StringBuilder();
+
+        details.append(
+                "AI media authenticity analysis was performed " +
+                        "using Reality Defender. "
+        );
+
+        details.append(
+                "Detection status: "
+                        + status
+                        + ". "
+        );
+
+        details.append(
+                "Normalized AI risk score: "
+                        + aiScore
+                        + ". "
+        );
+
+        if (
+                "MANIPULATED".equalsIgnoreCase(
+                        status
+                )
+        ) {
+
+            details.append(
+                    "The external AI detector identified " +
+                            "characteristics consistent with an " +
+                            "AI-generated or manipulated image. "
+            );
+
+        } else if (
+                "AUTHENTIC".equalsIgnoreCase(
+                        status
+                )
+        ) {
+
+            details.append(
+                    "The external AI detector found the image " +
+                            "consistent with authentic media. "
+            );
+
+        } else {
+
+            details.append(
+                    "The external AI detector returned an " +
+                            "inconclusive or non-standard result. "
+            );
+        }
+
+        /*
+         * Add individual model statuses when available.
+         *
+         * Numeric model scores are deliberately not accessed.
+         */
+        if (
+                result.getModels() != null &&
+                        !result.getModels().isEmpty()
+        ) {
+
+            details.append(
+                    "Individual detection models: "
+            );
+
+            boolean firstModel = true;
+
+            for (
+                    DetectionResult.ModelResult model :
+                    result.getModels()
+            ) {
+
+                if (model == null) {
+                    continue;
+                }
+
+                if (!firstModel) {
+
+                    details.append(
+                            "; "
+                    );
+                }
+
+                details.append(
+                        model.getName()
+                                + "="
+                                + model.getStatus()
+                );
+
+                firstModel = false;
+            }
+
+            details.append(
+                    ". "
+            );
+        }
+
+        return details.toString();
+    }
+
+    /**
+     * Conservative status-only fallback for the demo AI score.
+     */
+    private double scoreFromStatus(
+            String status
+    ) {
+
+        if (
+                "MANIPULATED".equalsIgnoreCase(
+                        status
+                )
+        ) {
+
+            return 0.80;
+        }
+
+        if (
+                "AUTHENTIC".equalsIgnoreCase(
+                        status
+                )
+        ) {
+
+            return 0.05;
+        }
+
+        return 0.0;
+    }
+
+    private double clamp(
+            double value,
+            double minimum,
+            double maximum
+    ) {
+
+        return Math.max(
+                minimum,
+                Math.min(
+                        maximum,
+                        value
+                )
+        );
     }
 
     /**
