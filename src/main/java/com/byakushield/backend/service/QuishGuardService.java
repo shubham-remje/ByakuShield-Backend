@@ -3,8 +3,10 @@ package com.byakushield.backend.service;
 import com.byakushield.backend.dto.QuishGuardRequest;
 import com.byakushield.backend.dto.ThreatResponse;
 import com.google.zxing.BinaryBitmap;
+import com.google.zxing.DecodeHintType;
 import com.google.zxing.MultiFormatReader;
 import com.google.zxing.Result;
+import com.google.zxing.BarcodeFormat;
 import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,9 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.URI;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.Map;
 
 @Service
 public class QuishGuardService {
@@ -46,7 +51,8 @@ public class QuishGuardService {
         }
 
         try {
-            BufferedImage image = ImageIO.read(file.getInputStream());
+            BufferedImage image =
+                    ImageIO.read(file.getInputStream());
 
             if (image == null) {
                 return new ThreatResponse(
@@ -57,15 +63,36 @@ public class QuishGuardService {
                 );
             }
 
-            BinaryBitmap bitmap = new BinaryBitmap(
-                    new HybridBinarizer(
-                            new BufferedImageLuminanceSource(image)
+            BinaryBitmap bitmap =
+                    new BinaryBitmap(
+                            new HybridBinarizer(
+                                    new BufferedImageLuminanceSource(image)
+                            )
+                    );
+
+            Map<DecodeHintType, Object> hints =
+                    new EnumMap<>(DecodeHintType.class);
+
+            hints.put(
+                    DecodeHintType.POSSIBLE_FORMATS,
+                    Collections.singletonList(
+                            BarcodeFormat.QR_CODE
                     )
             );
 
-            Result result = new MultiFormatReader().decode(bitmap);
+            hints.put(
+                    DecodeHintType.TRY_HARDER,
+                    Boolean.TRUE
+            );
 
-            String decodedUrl = result.getText();
+            Result result =
+                    new MultiFormatReader().decode(
+                            bitmap,
+                            hints
+                    );
+
+            String decodedUrl =
+                    result.getText();
 
             return analyzeUrl(decodedUrl);
 
@@ -82,7 +109,9 @@ public class QuishGuardService {
 
     private ThreatResponse analyzeUrl(String url) {
 
-        String normalizedUrl = url.trim().toLowerCase();
+        String normalizedUrl =
+                url.trim().toLowerCase();
+
         double score = 0.0;
 
         if (normalizedUrl.endsWith(".xyz")
@@ -106,7 +135,8 @@ public class QuishGuardService {
         }
 
         try {
-            URI uri = URI.create(normalizedUrl);
+            URI uri =
+                    URI.create(normalizedUrl);
 
             if (uri.getScheme() == null
                     || uri.getHost() == null
@@ -119,8 +149,11 @@ public class QuishGuardService {
             score += 0.40;
         }
 
-        score = Math.min(score, 1.0);
-        score = Math.round(score * 100.0) / 100.0;
+        score =
+                Math.min(score, 1.0);
+
+        score =
+                Math.round(score * 100.0) / 100.0;
 
         String level;
 
